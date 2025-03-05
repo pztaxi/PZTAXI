@@ -1,1 +1,79 @@
+import logging
+import sqlite3
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.utils import executor
 
+# Твій API токен
+API_TOKEN = "7387148983:AAF5yYzKRM4diecHgoO9ODI3jVl-WTtRqyk"
+
+# Ініціалізація бота
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher(bot)
+
+# Логування
+logging.basicConfig(level=logging.INFO)
+
+# Підключення до бази даних (зберігаємо вибір мови)
+conn = sqlite3.connect("users.db")
+cursor = conn.cursor()
+cursor.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, language TEXT)")
+conn.commit()
+
+# Кнопки вибору мови
+lang_keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+lang_keyboard.add(KeyboardButton("🇺🇦 Українська"), KeyboardButton("🇬🇧 English"))
+lang_keyboard.add(KeyboardButton("🇵🇱 Polski"), KeyboardButton("🇷🇺 Русский"))
+
+# Збереження мови
+def set_language(user_id, language):
+    cursor.execute("INSERT OR REPLACE INTO users (user_id, language) VALUES (?, ?)", (user_id, language))
+    conn.commit()
+
+# Отримання мови користувача
+def get_language(user_id):
+    cursor.execute("SELECT language FROM users WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    return result[0] if result else "🇬🇧 English"
+
+# Обробка старту
+@dp.message_handler(commands=["start"])
+async def send_welcome(message: types.Message):
+    await message.answer("🌍 Виберіть мову / Choose your language:", reply_markup=lang_keyboard)
+
+# Обробка вибору мови
+@dp.message_handler(lambda message: message.text in ["🇺🇦 Українська", "🇬🇧 English", "🇵🇱 Polski", "🇷🇺 Русский"])
+async def set_user_language(message: types.Message):
+    set_language(message.from_user.id, message.text)
+    texts = {
+        "🇺🇦 Українська": "Ви обрали українську 🇺🇦\nНадішліть опис замовлення:",
+        "🇬🇧 English": "You have selected English 🇬🇧\nSend your order description:",
+        "🇵🇱 Polski": "Wybrałeś język polski 🇵🇱\nPrześlij opis zamówienia:",
+        "🇷🇺 Русский": "Вы выбрали русский 🇷🇺\nОтправьте описание заказа:"
+    }
+    await message.answer(texts[message.text])
+
+# Обробка замовлень
+@dp.message_handler()
+async def handle_order(message: types.Message):
+    user_lang = get_language(message.from_user.id)
+    
+    # Канал для публікації (замініть на ваш)
+    CHANNEL_ID = "@your_channel"
+
+    texts = {
+        "🇺🇦 Українська": "✅ Нове замовлення!\n\n📄 Опис: {}\n📩 Контакт: @{}",
+        "🇬🇧 English": "✅ New Order!\n\n📄 Description: {}\n📩 Contact: @{}",
+        "🇵🇱 Polski": "✅ Nowe zamówienie!\n\n📄 Opis: {}\n📩 Kontakt: @{}",
+    }
+
+    # Формуємо повідомлення для публікації
+    order_text = texts[user_lang].format(message.text, message.from_user.username)
+    
+    # Відправляємо замовлення в канал
+    await bot.send_message(CHANNEL_ID, order_text)
+    await message.answer("✅ Ваше замовлення опубліковано!")
+
+# Запуск бота
+if __name__ == "__main__":
+    executor.start_polling(dp, skip_updates=True)
